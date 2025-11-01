@@ -1,0 +1,373 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+  <meta charset="UTF-8" />
+  <title>Astro Dodger Viaan 3D</title>
+  <script src="https://cdn.jsdelivr.net/npm/p5@1.9.3/lib/p5.min.js"></script>
+  <style>
+    html, body {
+      margin: 0;
+      padding: 0;
+      height: 100%;
+      overflow: hidden; /* ✅ No scrolling */
+      font-family: sans-serif;
+      background: #0f1720;
+      color: white;
+    }
+
+    header {
+      display: flex;
+      justify-content: space-between;
+      padding: 10px 20px;
+      background: #111;
+    }
+
+    .hud-chip {
+      margin-right: 10px;
+    }
+
+    button {
+      background: #44aaff;
+      color: white;
+      border: none;
+      padding: 6px 12px;
+      border-radius: 6px;
+      cursor: pointer;
+      margin-left: 5px;
+    }
+
+    #canvas-holder {
+      display: flex;
+      justify-content: center;
+    }
+
+    #gameover {
+      display: none;
+      position: absolute;
+      top: 40%;
+      left: 50%;
+      transform: translate(-50%, -50%);
+      background: #222;
+      padding: 20px;
+      border-radius: 10px;
+      text-align: center;
+      z-index: 10;
+    }
+
+    #gameover.visible {
+      display: block;
+    }
+
+    #shopModal {
+      display: none;
+      position: fixed;
+      inset: 0;
+      background: rgba(0, 0, 0, 0.65);
+      z-index: 40;
+      align-items: center;
+      justify-content: center;
+    }
+
+    #shopModal.visible {
+      display: flex;
+    }
+
+    .shop {
+      width: 400px;
+      padding: 16px;
+      border-radius: 12px;
+      background: #111623;
+      color: #fff;
+    }
+
+    .skin-list {
+      display: grid;
+      grid-template-columns: 1fr;
+      gap: 10px;
+      max-height: 300px;
+      overflow: auto;
+    }
+
+    .skin {
+      display: flex;
+      justify-content: space-between;
+      align-items: center;
+      background: #222;
+      padding: 8px;
+      border-radius: 8px;
+    }
+  </style>
+</head>
+<body>
+  <header>
+    <div><strong>🚀 Astro Dodger Viaan 3D</strong></div>
+    <div>
+      <span class="hud-chip">Score: <span id="score-text">0</span></span>
+      <span class="hud-chip">🏆 High Score: <span id="high-score-text">0</span></span>
+      <span class="hud-chip">💰 Coins: <span id="coin-count">0</span></span>
+      <button id="shopBtn">Shop</button>
+      <button id="adminBtn">Admin</button>
+    </div>
+  </header>
+
+  <div id="canvas-holder"></div>
+
+  <div id="gameover">
+    <h2>Game Over 😵</h2>
+    <p>Your Score: <strong id="final-score">0</strong></p>
+    <p>Coins Earned: <strong id="earned-coins">0</strong></p>
+    <button onclick="resetGame()">Play Again</button>
+  </div>
+
+  <!-- 🏪 SHOP -->
+  <div id="shopModal">
+    <div class="shop">
+      <h2>🚀 Ship Skins</h2>
+      <div class="skin-list" id="skinList"></div>
+      <button onclick="closeShop()">Close</button>
+    </div>
+  </div>
+
+  <script>
+let ship = { x: 0, y: 0, z: 0, vx: 0, vy: 0 };
+let moveDir = { x: 0, y: 0 };
+let asteroids = [], score = 0, coins = 0;
+let highScore = 0;
+let gameOver = false, invincible = false, showHitboxes = false;
+let equippedSkin = "blue";
+let ownedSkins = ["blue"];
+let shootingEnabled = true;
+let lasers = [];
+let baseSpeed = 1;
+
+function resetGame() {
+  ship.x = 0; ship.y = 0; ship.vx = 0; ship.vy = 0;
+  baseSpeed = 1;
+  asteroids = Array.from({ length: 25 }, () => makeAsteroid());
+  score = 0;
+  gameOver = false;
+  lasers = [];
+  document.getElementById("gameover").classList.remove("visible");
+  loop();
+}
+
+function makeAsteroid() {
+  return {
+    x: random(-width / 2 + 50, width / 2 - 50),
+    y: random(-height / 2 + 50, height / 2 - 50),
+    z: random(-500, -100),
+    size: random(15, 30),
+    speed: random(2, 5)
+  };
+}
+
+function setup() {
+  let canvas = createCanvas(windowWidth, windowHeight, WEBGL);
+  canvas.parent("canvas-holder");
+
+  // Load data
+  highScore = parseInt(localStorage.getItem("astro_highscore") || 0);
+  coins = parseInt(localStorage.getItem("astro_coins") || 0);
+  ownedSkins = JSON.parse(localStorage.getItem("astro_skins") || '["blue"]');
+  equippedSkin = localStorage.getItem("astro_equipped") || "blue";
+
+  document.getElementById("high-score-text").textContent = highScore;
+  document.getElementById("coin-count").textContent = coins;
+
+  resetGame();
+
+  document.getElementById("adminBtn").addEventListener("click", openAdmin);
+  document.getElementById("shopBtn").addEventListener("click", openShop);
+}
+
+function windowResized() {
+  resizeCanvas(windowWidth, windowHeight);
+}
+
+function draw() {
+  background(10);
+  ambientLight(100);
+  directionalLight(255, 255, 255, 0, -1, -1);
+  camera(0, 0, 400, 0, 0, 0, 0, 1, 0);
+
+  // Movement
+  ship.vx += (moveDir.x * 5 - ship.vx) * 0.1;
+  ship.vy += (moveDir.y * 5 - ship.vy) * 0.1;
+  ship.x += ship.vx;
+  ship.y += ship.vy;
+
+  // ✅ Boundaries
+  let boundaryX = width / 2 - 80;
+  let boundaryY = height / 2 - 80;
+  ship.x = constrain(ship.x, -boundaryX, boundaryX);
+  ship.y = constrain(ship.y, -boundaryY, boundaryY);
+
+  drawShip();
+  updateAsteroids();
+  updateLasers();
+
+  if (!gameOver) score += 0.1;
+
+  // ✅ Difficulty scaling every 200 score
+  if (score > 0 && Math.floor(score) % 200 === 0) {
+    baseSpeed += 0.05;
+  }
+
+  // ✅ Update HUD
+  document.getElementById("score-text").textContent = Math.floor(score);
+  document.getElementById("coin-count").textContent = coins;
+
+  // ✅ High score
+  if (score > highScore) {
+    highScore = Math.floor(score);
+    localStorage.setItem("astro_highscore", highScore);
+    document.getElementById("high-score-text").textContent = highScore;
+  }
+}
+
+function drawShip() {
+  push();
+  translate(ship.x, ship.y, ship.z);
+  rotateX(HALF_PI);
+  fill(equippedSkin === "red" ? "#ff6b6b" :
+       equippedSkin === "neon" ? "#ff00ff" : "#44aaff");
+  cone(20, 40);
+  pop();
+}
+
+function updateAsteroids() {
+  for (let asteroid of asteroids) {
+    asteroid.z += asteroid.speed * baseSpeed;
+
+    push();
+    translate(asteroid.x, asteroid.y, asteroid.z);
+    rotateY(frameCount * 0.01);
+    fill(200, 150, 50);
+    sphere(asteroid.size);
+    pop();
+
+    // Collision
+    let xyDistance = dist(ship.x, ship.y, asteroid.x, asteroid.y);
+    let zDistance = abs(asteroid.z - ship.z);
+    if (!invincible && xyDistance < asteroid.size + 10 && zDistance < 30) {
+      triggerGameOver();
+    }
+
+    // Reset asteroid
+    if (asteroid.z > 200) {
+      Object.assign(asteroid, makeAsteroid());
+      asteroid.z = -500;
+    }
+  }
+}
+
+function updateLasers() {
+  if (shootingEnabled && keyIsDown(32) && frameCount % 10 === 0) {
+    lasers.push({ x: ship.x, y: ship.y, z: ship.z, speed: 10 });
+  }
+
+  for (let laser of lasers) {
+    laser.z -= laser.speed;
+    push();
+    translate(laser.x, laser.y, laser.z);
+    fill("red");
+    cylinder(2, 20);
+    pop();
+
+    // Hit detection
+    for (let asteroid of asteroids) {
+      let hit = dist(laser.x, laser.y, asteroid.x, asteroid.y) < asteroid.size && abs(laser.z - asteroid.z) < asteroid.size;
+      if (hit) {
+        Object.assign(asteroid, makeAsteroid());
+        asteroid.z = -500;
+        score += 10;
+        laser.hit = true;
+      }
+    }
+  }
+
+  lasers = lasers.filter(l => l.z > -1000 && !l.hit);
+}
+
+function triggerGameOver() {
+  gameOver = true;
+  noLoop();
+  let earned = Math.floor(score);
+  let coinReward = Math.floor(earned / 5);
+  coins += coinReward;
+  localStorage.setItem("astro_coins", coins);
+  document.getElementById("final-score").textContent = earned;
+  document.getElementById("earned-coins").textContent = coinReward;
+  document.getElementById("gameover").classList.add("visible");
+}
+
+function keyPressed() {
+  if (keyCode === LEFT_ARROW) moveDir.x = -1;
+  if (keyCode === RIGHT_ARROW) moveDir.x = 1;
+  if (keyCode === UP_ARROW) moveDir.y = -1;
+  if (keyCode === DOWN_ARROW) moveDir.y = 1;
+}
+
+function keyReleased() {
+  if ([LEFT_ARROW, RIGHT_ARROW].includes(keyCode)) moveDir.x = 0;
+  if ([UP_ARROW, DOWN_ARROW].includes(keyCode)) moveDir.y = 0;
+}
+
+// 🏪 SHOP FUNCTIONS
+const shopItems = [
+  { name: "Red Ship", id: "red", price: 100 },
+  { name: "Neon Ship", id: "neon", price: 250 },
+];
+
+function openShop() {
+  const list = document.getElementById("skinList");
+  list.innerHTML = "";
+
+  for (let item of shopItems) {
+    const owned = ownedSkins.includes(item.id);
+    const div = document.createElement("div");
+    div.className = "skin";
+    div.innerHTML = `
+      <span>${item.name} - ${item.price} 💰</span>
+      <button>${owned ? (equippedSkin === item.id ? "Equipped" : "Equip") : "Buy"}</button>
+    `;
+    const btn = div.querySelector("button");
+    btn.onclick = () => {
+      if (owned) {
+        equippedSkin = item.id;
+        localStorage.setItem("astro_equipped", equippedSkin);
+        openShop();
+      } else if (coins >= item.price) {
+        coins -= item.price;
+        ownedSkins.push(item.id);
+        localStorage.setItem("astro_coins", coins);
+        localStorage.setItem("astro_skins", JSON.stringify(ownedSkins));
+        openShop();
+      } else {
+        alert("Not enough coins!");
+      }
+    };
+    list.appendChild(div);
+  }
+
+  document.getElementById("shopModal").classList.add("visible");
+}
+
+function closeShop() {
+  document.getElementById("shopModal").classList.remove("visible");
+}
+
+function openAdmin() {
+  const code = prompt("Enter admin code:");
+  if (code === "HEHE@2714") {
+    const cmd = prompt("Admin Access Granted!\n1. +1000 Coins\n2. Toggle Invincible\n3. Toggle Hitboxes\n4. Toggle Laser Shooting");
+    if (cmd === "1") coins += 1000;
+    else if (cmd === "2") invincible = !invincible;
+    else if (cmd === "3") showHitboxes = !showHitboxes;
+    else if (cmd === "4") shootingEnabled = !shootingEnabled;
+    localStorage.setItem("astro_coins", coins);
+  } else alert("❌ Wrong admin code!");
+}
+  </script>
+</body>
+</html>
