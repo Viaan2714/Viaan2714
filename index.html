@@ -143,7 +143,7 @@ let baseSpeed = 1;
 function resetGame() {
   ship.x = 0; ship.y = 0; ship.vx = 0; ship.vy = 0;
   baseSpeed = 1;
-  asteroids = Array.from({ length: 25 }, () => makeAsteroid());
+  asteroids = Array.from({ length: 50 }, () => makeAsteroid());
   score = 0;
   gameOver = false;
   lasers = [];
